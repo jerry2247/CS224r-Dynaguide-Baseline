@@ -1,0 +1,79 @@
+{
+  "_meta": {
+    "task": "switch_on",
+    "source": "DynaGuide paper (NeurIPS 2025) — Appendix A.4 Table 4, §B.1",
+    "purpose": "Single source of truth for switch_on reproduction hyperparameters.",
+    "do_not_modify": "These values must match the paper exactly.",
+    "config_version": "1.0",
+    "last_verified_against_paper": "2026-05-14"
+  },
+
+  "task": {
+    "name": "switch_on",
+    "calvin_env_setup": {
+      "switch": 0
+    },
+    "reset_poses_file": "calvin_exp_configs_examples/reset_poses/initial_calvin_robot_states_right_side_midpoint.json",
+    "use_negative_guidance": false,
+    "comment_env_setup": "switch=0 means the switch starts in the OFF position (per core/calvin_utils.py limits [0, 0.09]). Success = switch crosses midpoint to the ON side. Matches the released calvin_exp_configs_examples/switch_on.json.",
+    "comment_reset_poses": "Right-side midpoint poses — the robot starts on the right side of the table (where the switch is), midpoint height. Matches the released config."
+  },
+
+  "guidance_hyperparameters": {
+    "scale": 1.5,
+    "alpha_sigma": 30,
+    "stochastic_sampling_M": 4,
+    "num_guidance_conditions": 20,
+    "comment": "Table 4 row for switch_on. scale=guidance strength (s in Eq. 3), alpha=sigma in Eq. 2 log-sum-exp, M=stochastic-sampling inner-loop repeats."
+  },
+
+  "diffusion_hyperparameters": {
+    "num_inference_timesteps": 10,
+    "num_train_timesteps": 100,
+    "beta_schedule": "squaredcos_cap_v2",
+    "prediction_type": "epsilon",
+    "clip_sample": true,
+    "set_alpha_to_one": true,
+    "steps_offset": 0,
+    "comment": "DDIM scheduler from diffusers. Matches configs/diffusion_policy_image_calvin_ddim.json."
+  },
+
+  "policy_horizons": {
+    "observation_horizon_To": 2,
+    "action_horizon_Ta": 14,
+    "prediction_horizon_Tp": 16,
+    "comment_Ta": "Paper §B.1 says 14 actions executed open-loop before re-querying; the released config has Ta=8 but the modified diffusion_policy.py:658 hardcodes Ta=14 for guidance runs. We use 14."
+  },
+
+  "observation_modalities": {
+    "rgb": ["third_person"],
+    "low_dim": ["proprio"],
+    "proprio_dim": 15,
+    "action_dim": 7,
+    "comment": "Per run_dynaguide.py:303-308."
+  },
+
+  "evaluation_protocol": {
+    "n_rollouts_per_seed": 100,
+    "horizon_steps": 400,
+    "seeds": [1, 2, 3],
+    "comment_seeds": "Paper averages 6 seeds. We use 3 for budget; report mean ± standard error (sigma/sqrt(n)).",
+    "success_criterion": "Articulated switch crosses the midpoint of its travel from initial state, per check_state_difference() in core/calvin_utils.py:53."
+  },
+
+  "paper_targets": {
+    "switch_on_dynaguide_mean": 0.74,
+    "switch_on_dynaguide_se": 0.027,
+    "switch_on_dynaguide_band_lower": 0.68,
+    "switch_on_dynaguide_band_upper": 0.78,
+    "switch_on_base_policy_approx": 0.08,
+    "boost_factor_approx": 9.0,
+    "source": "Paper Table 5, 'All Environments' row (the standard DynaGuide setup, full ABCD-trained dynamics model)."
+  },
+
+  "baseline_run": {
+    "scale": 0.0,
+    "stochastic_sampling_M": 1,
+    "comment": "Same code path as DynaGuide, with scale=0 the gradient is zero-multiplied out. M=1 means no stochastic-sampling inner loop. This is the 'no guidance' baseline."
+  }
+}

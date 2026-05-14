@@ -1,0 +1,91 @@
+{
+  "per_run": {
+    "BasePolicy_switch_on_seed1": {
+      "n_rollouts": 100,
+      "avg_horizon": 98.33,
+      "counts": {
+        "switch_on": 13,
+        "door_left": 6,
+        "button_on": 6,
+        "drawer_open": 15,
+        "pink_displace": 16,
+        "drawer_close": 11,
+        "button_off": 6,
+        "red_displace": 13,
+        "blue_displace": 10,
+        "door_right": 4
+      }
+    },
+    "DynaGuide_switch_on_seed1": {
+      "n_rollouts": 100,
+      "avg_horizon": 86.8,
+      "counts": {
+        "switch_on": 79,
+        "drawer_close": 2,
+        "blue_displace": 4,
+        "red_displace": 5,
+        "button_off": 1,
+        "pink_displace": 4,
+        "button_on": 3,
+        "door_left": 1,
+        "drawer_open": 1
+      }
+    },
+    "DynaGuide_switch_on_seed2": {
+      "n_rollouts": 100,
+      "avg_horizon": 86.87,
+      "counts": {
+        "switch_on": 67,
+        "red_displace": 7,
+        "button_on": 5,
+        "door_left": 6,
+        "button_off": 3,
+        "drawer_close": 4,
+        "pink_displace": 5,
+        "drawer_open": 2,
+        "blue_displace": 1
+      }
+    },
+    "DynaGuide_switch_on_seed3": {
+      "n_rollouts": 100,
+      "avg_horizon": 88.15,
+      "counts": {
+        "switch_on": 79,
+        "pink_displace": 5,
+        "drawer_close": 3,
+        "red_displace": 5,
+        "blue_displace": 3,
+        "button_off": 2,
+        "door_left": 3
+      }
+    }
+  },
+  "aggregate": {
+    "baseline": {
+      "mean": 0.13,
+      "se": null,
+      "rates": [
+        0.13
+      ]
+    },
+    "dynaguide": {
+      "mean": 0.75,
+      "se": 0.04,
+      "rates": [
+        0.79,
+        0.67,
+        0.79
+      ]
+    },
+    "boost_factor": 5.769230769230769
+  },
+  "paper_targets": {
+    "switch_on_dynaguide_mean": 0.74,
+    "switch_on_dynaguide_se": 0.027,
+    "switch_on_dynaguide_band_lower": 0.68,
+    "switch_on_dynaguide_band_upper": 0.78,
+    "switch_on_base_policy_approx": 0.08,
+    "boost_factor_approx": 9.0,
+    "source": "Paper Table 5, 'All Environments' row (the standard DynaGuide setup, full ABCD-trained dynamics model)."
+  }
+}

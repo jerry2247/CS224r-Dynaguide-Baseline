@@ -1,0 +1,75 @@
+{
+  "_meta": {
+    "purpose": "Canonical record of which model artifacts we are using.",
+    "rule": "Binary files in this directory are gitignored. This registry is committed. To prove which file produced a number, look up the sha256 here.",
+    "registry_version": "1.0",
+    "last_updated": "2026-05-14"
+  },
+
+  "expected_artifacts": {
+    "dynaguide_model.pth": {
+      "canonical_name": "dynaguide_model.pth",
+      "original_filename": "dynamics_model_5900.pth",
+      "source_url": "https://drive.google.com/file/d/1DeOnoDacXjBHgy1DGoRJpYIR8SyDy5fJ/view?usp=drive_link",
+      "source_section": "README.md, 'Calvin DynaGuide: Immediate Example', link #1",
+      "description": "Trained dynamics model (FinalStatePredictionDino). Predicts future DinoV2 latents from (obs, action_chunk). The '_5900' suffix in the original filename indicates training epoch.",
+      "expected_loader": "torch.load → flat state_dict, then model.load_state_dict(...)",
+      "size_mb_actual": 151.1,
+      "sha256": "cccdcff10d1319c6fc3d628abd28743d4c9c9b96c02bea66ebd95a388ae4cb94",
+      "status": "VERIFIED",
+      "downloaded_at": "2026-05-14",
+      "verified_at": "2026-05-14",
+      "structural_checks_passed": [
+        "torch.load succeeds (weights_only=False)",
+        "flat state_dict with 301 keys",
+        "contains state_encoder.* keys (DinoV2 ViT-s/14 backbone)",
+        "contains state_decoder_transformer.* keys (6-layer Transformer)",
+        "contains action_embedder.* keys (ActionEmbedding module)",
+        "contains proprio_embedder.* keys (Linear projection for 15-d proprio)",
+        "contains reconstruction_model.* keys (VQVAE decoder for visualization)",
+        "layout matches core/dynamics_models.py::FinalStatePredictionDino"
+      ]
+    },
+
+    "base_policy.pth": {
+      "canonical_name": "base_policy.pth",
+      "original_filename": "base_policy_300.pth",
+      "source_url": "https://drive.google.com/file/d/1lcI_PBgFIYDsoK4T4qO7SGJJgI2lw0Kd/view?usp=drive_link",
+      "source_section": "README.md, 'Calvin DynaGuide: Immediate Example', link #2",
+      "description": "Robomimic diffusion policy checkpoint trained on CALVIN-D. algo_name='diffusion_policy', contains model.nets + model.ema + config + normalization stats. The '_300' suffix in the original filename indicates training epoch.",
+      "expected_loader": "robomimic.utils.file_utils.policy_from_checkpoint",
+      "size_mb_actual": 734.0,
+      "sha256": "ae633c057acdfd3ce4ae0257455ebe66525b5442e5ed56fd23faa422eb13fc6f",
+      "status": "VERIFIED",
+      "downloaded_at": "2026-05-14",
+      "verified_at": "2026-05-14",
+      "structural_checks_passed": [
+        "torch.load succeeds",
+        "top-level keys include: model, config, algo_name, env_metadata, shape_metadata, action_normalization_stats",
+        "model has both 'nets' and 'ema' sub-keys (EMA enabled, matches paper §B.1)",
+        "algo_name == 'diffusion_policy'"
+      ]
+    },
+
+    "switch_on_guidance.hdf5": {
+      "canonical_name": "switch_on_guidance.hdf5",
+      "original_filename": "guidance_condition_switch_on_20.hdf5",
+      "source_url": "https://drive.google.com/file/d/1wtEGnG87Y-imqD2MygcqbJwp_RGi7YNB/view?usp=drive_link",
+      "source_section": "README.md, 'Calvin DynaGuide: Immediate Example', link #3",
+      "description": "Guidance conditions g+ for switch_on. 20 demonstration trajectories where the robot flipped the switch on. Each demo has obs (eye_in_hand, proprio, states, third_person), actions, dones, rewards. The '_20' suffix matches the paper's |g+|=20 default.",
+      "expected_loader": "h5py.File or core.embedder_datasets.MultiviewDataset",
+      "size_mb_actual": 162.7,
+      "sha256": "34fad045c87fc7ddf3761f42d7f164955938b052721addad0c735e7ad6210e10",
+      "status": "VERIFIED",
+      "downloaded_at": "2026-05-14",
+      "verified_at": "2026-05-14",
+      "structural_checks_passed": [
+        "h5py.File opens cleanly",
+        "/data contains exactly 20 demos (matches paper |g+|=20)",
+        "each demo has obs/{eye_in_hand, proprio, states, third_person}, actions, dones, rewards",
+        "demo_0 third_person shape: (46, 200, 200, 3) — RGB images at 200x200",
+        "demo_0 actions shape: (46, 7) — 7-d action space matches paper"
+      ]
+    }
+  }
+}

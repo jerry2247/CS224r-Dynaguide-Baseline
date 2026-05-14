@@ -1,1 +1,51 @@
-results/
+# --- DynaGuide upstream (only the repo-root results/, not nested) ---
+/results/
+
+# --- Our reproduction outputs ---
+# Ignore all per-rollout results, but keep aggregate reports (small JSON/MD summaries).
+reproduction/results/**
+!reproduction/results/*.json
+!reproduction/results/*.md
+reproduction/scratch/
+reproduction/**/*.hdf5
+reproduction/**/*.mp4
+reproduction/**/*.pth
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Editors / OS ---
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# --- Env / secrets ---
+.env
+.envrc
+
+# --- Modal local cache ---
+.modal/
+
+# --- AI tool configs (per-user, not shared) ---
+.agents/
+.claude/
+.codex/
+.cursor/
+.gemini/
+.qwen/
+.orchestra-skills.json
+skills/
+
+# --- Large model / data files that shouldn't be tracked anywhere ---
+*.bin
+checkpoint_*.pth
