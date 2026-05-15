@@ -1,0 +1,23 @@
+{
+  "task": "switch_on",
+  "success_label": "switch_on",
+  "base_policy": "/inputs/base_policy.pth",
+  "dynaguide_model": "/inputs/dynaguide_model.pth",
+  "guidance_conditions": "/inputs/switch_on_guidance.hdf5",
+  "output_dir": "/traces/switch_on_teacher",
+  "seeds": [1, 2, 3],
+  "n_rollouts_per_seed": 50,
+  "horizon": 400,
+  "env_setup": {"switch": 0},
+  "reset_poses": "initial_calvin_robot_states_right_side_midpoint.json",
+  "main_camera": "third_person",
+  "cameras": ["third_person", "eye_in_hand"],
+  "proprio_key": "proprio",
+  "action_dim": 7,
+  "action_chunk_length": 16,
+  "sampler": "ddim",
+  "num_inference_timesteps": 10,
+  "scale": 1.5,
+  "alpha": 30,
+  "ss": 4
+}
