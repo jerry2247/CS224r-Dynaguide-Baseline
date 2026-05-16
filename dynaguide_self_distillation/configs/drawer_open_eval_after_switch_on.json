@@ -1,0 +1,14 @@
+{
+  "task": "drawer_open",
+  "success_label": "drawer_open",
+  "policy": "/distilled/switch_on_then_drawer_open/best.pth",
+  "output_dir": "/metrics/drawer_open_after_switch_on",
+  "guidance_mode": "none",
+  "seeds": [1, 2, 3],
+  "n_rollouts_per_seed": 100,
+  "horizon": 400,
+  "env_setup": {"drawer": 0},
+  "reset_poses": "initial_calvin_robot_states_right_side_midpoint.json",
+  "sampler": "ddim",
+  "num_inference_timesteps": 10
+}

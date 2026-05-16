@@ -1,0 +1,20 @@
+{
+  "task": "switch_on",
+  "base_policy": "/inputs/base_policy.pth",
+  "trace_dir": "/traces/switch_on_teacher",
+  "output_dir": "/distilled/switch_on",
+  "sampler": "ddim",
+  "num_inference_timesteps": 10,
+  "seed": 1,
+  "batch_size": 64,
+  "max_steps": 20000,
+  "learning_rate": 0.00001,
+  "weight_decay": 0.0,
+  "validation_fraction": 0.1,
+  "ema_decay": 0.999,
+  "grad_clip": 1.0,
+  "log_every": 100,
+  "save_every": 2000,
+  "num_workers": 0,
+  "use_bfloat16": true
+}

@@ -1,0 +1,14 @@
+{
+  "task": "switch_on",
+  "success_label": "switch_on",
+  "policy": "/distilled/switch_on_offpolicy_guided_rollouts/best.pth",
+  "output_dir": "/metrics/switch_on_offpolicy_guided_rollouts",
+  "guidance_mode": "none",
+  "seeds": [1, 2, 3],
+  "n_rollouts_per_seed": 100,
+  "horizon": 400,
+  "env_setup": {"switch": 0},
+  "reset_poses": "initial_calvin_robot_states_right_side_midpoint.json",
+  "sampler": "ddim",
+  "num_inference_timesteps": 10
+}

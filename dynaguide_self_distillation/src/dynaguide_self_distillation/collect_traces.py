@@ -27,7 +27,12 @@ def collect_traces(
     n_rollouts: int | None = None,
     output_name: str | None = None,
 ) -> dict[str, Any]:
-    """Collect on-policy student rollouts with DynaGuide denoising targets."""
+    """Collect rollout states with DynaGuide denoising targets.
+
+    By default, the environment is stepped by the unguided student policy. The
+    off-policy baseline uses the same trace format but sets action_source to
+    dynaguide_guided, causing the guided policy to drive the simulator.
+    """
 
     repo_root = Path(repo_root)
     artifact_root = Path(artifact_root)
@@ -51,6 +56,9 @@ def collect_traces(
         _volume_path(artifact_root, config["guidance_conditions"]),
         config,
     )
+    action_source = config.get("action_source", "student_unguided")
+    if action_source not in {"student_unguided", "dynaguide_guided"}:
+        raise ValueError(f"unsupported action_source={action_source!r}")
 
     from core.calvin_utils import check_state_difference, generate_reset_state
 
@@ -68,7 +76,7 @@ def collect_traces(
                 "trace_schema": "trace.v2_obs_history",
                 "task": config["task"],
                 "success_label": config["success_label"],
-                "action_source": "student_unguided",
+                "action_source": action_source,
                 "teacher": "dynaguide_side_computation",
                 "horizon": config["horizon"],
                 "sampler": config["sampler"],
@@ -100,6 +108,7 @@ def collect_traces(
                     generate_reset_state=generate_reset_state,
                     check_state_difference=check_state_difference,
                     guidance_function=guidance_function,
+                    action_source=action_source,
                 )
                 _write_episode(data_group, episode)
 
@@ -166,6 +175,7 @@ def _run_episode(
     generate_reset_state: Any,
     check_state_difference: Any,
     guidance_function: Any,
+    action_source: str,
 ) -> dict[str, Any]:
     policy.start_episode()
     env.reset()
@@ -201,7 +211,15 @@ def _run_episode(
                 num_inference_timesteps=int(config["num_inference_timesteps"]),
             )
 
-        action = policy(ob=obs)
+        if action_source == "dynaguide_guided":
+            action = policy(
+                ob=obs,
+                guidance_function=guidance_function,
+                guidance_type="diffusion",
+                ss=int(config["ss"]),
+            )
+        else:
+            action = policy(ob=obs)
         next_obs, _reward, _done, _info = env.step(action)
         state, proprio = _state_and_proprio(next_obs)
         actions.append(np.asarray(action, dtype=np.float32))
@@ -228,6 +246,7 @@ def _run_episode(
         "rollout_index": rollout_index,
         "success": behavior_label == config["success_label"],
         "behavior_label": behavior_label,
+        "action_source": action_source,
         "queries": sink.queries,
         "actions": actions,
         "states": states,
@@ -310,7 +329,7 @@ def _write_episode(data_group: Any, episode: dict[str, Any]) -> None:
             "rollout_index": episode["rollout_index"],
             "success": bool(episode["success"]),
             "behavior_label": episode["behavior_label"],
-            "action_source": "student_unguided",
+            "action_source": episode["action_source"],
         },
     )
     _write_queries(demo, episode["queries"])

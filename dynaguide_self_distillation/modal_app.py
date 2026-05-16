@@ -31,6 +31,23 @@ TRACE_SHARDS = tuple(
 
 TRACE_CONFIG = f"{REMOTE_PROJECT}/configs/switch_on_trace.json"
 SMOKE_CONFIG = f"{REMOTE_PROJECT}/configs/switch_on_trace_smoke.json"
+SWITCH_ON_GUIDED_TRACE_CONFIG = f"{REMOTE_PROJECT}/configs/switch_on_trace_guided.json"
+DISTILL_CONFIG = f"{REMOTE_PROJECT}/configs/switch_on_distill.json"
+SWITCH_ON_OFFPOLICY_DISTILL_CONFIG = f"{REMOTE_PROJECT}/configs/switch_on_distill_offpolicy.json"
+EVAL_CONFIG = f"{REMOTE_PROJECT}/configs/switch_on_eval.json"
+SWITCH_ON_BASE_EVAL_CONFIG = f"{REMOTE_PROJECT}/configs/switch_on_eval_base.json"
+SWITCH_ON_DYNAGUIDE_EVAL_CONFIG = f"{REMOTE_PROJECT}/configs/switch_on_eval_dynaguide.json"
+SWITCH_ON_OFFPOLICY_EVAL_CONFIG = f"{REMOTE_PROJECT}/configs/switch_on_eval_offpolicy.json"
+DRAWER_OPEN_TRACE_CONFIG = f"{REMOTE_PROJECT}/configs/drawer_open_trace_after_switch_on.json"
+DRAWER_OPEN_DISTILL_CONFIG = f"{REMOTE_PROJECT}/configs/drawer_open_distill_after_switch_on.json"
+DRAWER_OPEN_EVAL_CONFIG = f"{REMOTE_PROJECT}/configs/drawer_open_eval_after_switch_on.json"
+SWITCH_ON_RETENTION_EVAL_CONFIG = f"{REMOTE_PROJECT}/configs/switch_on_eval_retention_after_drawer_open.json"
+
+TRACE_CONFIGS = {
+    "switch_on": TRACE_CONFIG,
+    "switch_on_guided": SWITCH_ON_GUIDED_TRACE_CONFIG,
+    "drawer_open_after_switch_on": DRAWER_OPEN_TRACE_CONFIG,
+}
 
 PYTHONPATH = (
     f"{REMOTE_PROJECT}/src",
@@ -181,12 +198,57 @@ def _collect(
     return result
 
 
+def _train(config_path: str) -> dict:
+    _bootstrap()
+    from dynaguide_self_distillation.train import train_distilled
+
+    result = train_distilled(
+        config_path,
+        repo_root=REMOTE_REPO,
+        artifact_root=ARTIFACTS,
+        commit_callback=volume.commit,
+    )
+    volume.commit()
+    print(json.dumps(result, indent=2))
+    return result
+
+
+def _evaluate(config_path: str) -> dict:
+    _bootstrap()
+    from dynaguide_self_distillation.eval import evaluate_distilled
+
+    result = evaluate_distilled(
+        config_path,
+        repo_root=REMOTE_REPO,
+        artifact_root=ARTIFACTS,
+    )
+    volume.commit()
+    print(json.dumps(result, indent=2))
+    return result
+
+
+def _trace_shards(config_key: str) -> tuple[tuple[str, int, int, int], ...]:
+    if config_key not in TRACE_CONFIGS:
+        raise ValueError(f"unknown trace config key {config_key!r}")
+    return tuple((config_key, seed, start, count) for seed, start, count in TRACE_SHARDS)
+
+
+def _spawn_trace_collection(config_key: str) -> None:
+    collect_trace_shard_worker.spawn_map(_trace_shards(config_key))
+    print(f"Submitted {config_key} trace shards:")
+    for _config_key, seed, start, count in _trace_shards(config_key):
+        stop = start + count
+        print(f"  seed={seed}, rollouts=[{start}, {stop})")
+
+
 @app.function(volumes={ARTIFACTS: volume}, gpu=TRACE_GPU, timeout=SHARD_TIMEOUT)
-def collect_switch_on_shard_worker(seed: int, rollout_start: int, n_rollouts: int) -> dict:
+def collect_trace_shard_worker(shard: tuple[str, int, int, int]) -> dict:
+    config_key, seed, rollout_start, n_rollouts = shard
+    config_path = TRACE_CONFIGS[config_key]
     rollout_stop = rollout_start + n_rollouts
     output_name = f"seed_{seed}_rollouts_{rollout_start:02d}_{rollout_stop - 1:02d}"
     return _collect(
-        TRACE_CONFIG,
+        config_path,
         seed=seed,
         rollout_start=rollout_start,
         n_rollouts=n_rollouts,
@@ -196,20 +258,76 @@ def collect_switch_on_shard_worker(seed: int, rollout_start: int, n_rollouts: in
 
 @app.local_entrypoint()
 def collect_switch_on_traces() -> None:
-    handles = [collect_switch_on_shard_worker.spawn(seed, start, count) for seed, start, count in TRACE_SHARDS]
-    print("Submitted switch_on trace shards:")
-    for (seed, start, count), handle in zip(TRACE_SHARDS, handles, strict=True):
-        stop = start + count
-        print(f"  seed={seed}, rollouts=[{start}, {stop}): {handle.object_id}")
+    _spawn_trace_collection("switch_on")
     print("Each shard writes /artifacts/traces/switch_on_teacher/seed_<seed>_rollouts_<start>_<end>.hdf5")
 
 
 @app.local_entrypoint()
 def collect_switch_on_shard(seed: int, rollout_start: int, n_rollouts: int = ROLLOUTS_PER_SHARD) -> None:
-    result = collect_switch_on_shard_worker.remote(seed, rollout_start, n_rollouts)
+    result = collect_trace_shard_worker.remote(("switch_on", seed, rollout_start, n_rollouts))
     print(json.dumps(result, indent=2))
+
+
+@app.local_entrypoint()
+def collect_switch_on_guided_traces() -> None:
+    _spawn_trace_collection("switch_on_guided")
+    print("Each shard writes /artifacts/traces/switch_on_guided_rollouts/seed_<seed>_rollouts_<start>_<end>.hdf5")
+
+
+@app.local_entrypoint()
+def collect_drawer_open_traces_after_switch_on() -> None:
+    _spawn_trace_collection("drawer_open_after_switch_on")
+    print(
+        "Each shard writes "
+        "/artifacts/traces/drawer_open_teacher_after_switch_on/seed_<seed>_rollouts_<start>_<end>.hdf5"
+    )
 
 
 @app.function(volumes={ARTIFACTS: volume}, gpu=TRACE_GPU, timeout=7200)
 def collect_switch_on_smoke() -> dict:
     return _collect(SMOKE_CONFIG)
+
+
+@app.function(volumes={ARTIFACTS: volume}, gpu=TRACE_GPU, timeout=21600)
+def train_switch_on_distilled() -> dict:
+    return _train(DISTILL_CONFIG)
+
+
+@app.function(volumes={ARTIFACTS: volume}, gpu=TRACE_GPU, timeout=21600)
+def train_switch_on_offpolicy_distilled() -> dict:
+    return _train(SWITCH_ON_OFFPOLICY_DISTILL_CONFIG)
+
+
+@app.function(volumes={ARTIFACTS: volume}, gpu=TRACE_GPU, timeout=21600)
+def train_drawer_open_after_switch_on() -> dict:
+    return _train(DRAWER_OPEN_DISTILL_CONFIG)
+
+
+@app.function(volumes={ARTIFACTS: volume}, gpu=TRACE_GPU, timeout=14400)
+def evaluate_switch_on_distilled() -> dict:
+    return _evaluate(EVAL_CONFIG)
+
+
+@app.function(volumes={ARTIFACTS: volume}, gpu=TRACE_GPU, timeout=14400)
+def evaluate_switch_on_base() -> dict:
+    return _evaluate(SWITCH_ON_BASE_EVAL_CONFIG)
+
+
+@app.function(volumes={ARTIFACTS: volume}, gpu=TRACE_GPU, timeout=14400)
+def evaluate_switch_on_dynaguide() -> dict:
+    return _evaluate(SWITCH_ON_DYNAGUIDE_EVAL_CONFIG)
+
+
+@app.function(volumes={ARTIFACTS: volume}, gpu=TRACE_GPU, timeout=14400)
+def evaluate_switch_on_offpolicy_distilled() -> dict:
+    return _evaluate(SWITCH_ON_OFFPOLICY_EVAL_CONFIG)
+
+
+@app.function(volumes={ARTIFACTS: volume}, gpu=TRACE_GPU, timeout=14400)
+def evaluate_drawer_open_after_switch_on() -> dict:
+    return _evaluate(DRAWER_OPEN_EVAL_CONFIG)
+
+
+@app.function(volumes={ARTIFACTS: volume}, gpu=TRACE_GPU, timeout=14400)
+def evaluate_switch_on_retention_after_drawer_open() -> dict:
+    return _evaluate(SWITCH_ON_RETENTION_EVAL_CONFIG)

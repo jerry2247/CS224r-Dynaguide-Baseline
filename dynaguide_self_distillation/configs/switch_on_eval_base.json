@@ -1,0 +1,14 @@
+{
+  "task": "switch_on",
+  "success_label": "switch_on",
+  "policy": "/inputs/base_policy.pth",
+  "output_dir": "/metrics/switch_on_base",
+  "guidance_mode": "none",
+  "seeds": [1, 2, 3],
+  "n_rollouts_per_seed": 100,
+  "horizon": 400,
+  "env_setup": {"switch": 0},
+  "reset_poses": "initial_calvin_robot_states_right_side_midpoint.json",
+  "sampler": "ddim",
+  "num_inference_timesteps": 10
+}

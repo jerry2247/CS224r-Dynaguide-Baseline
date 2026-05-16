@@ -1,12 +1,29 @@
 # DynaGuide Self-Distillation
 
-This folder contains the trace-collection code for DynaGuide self-distillation
-on CALVIN `switch_on`. The job runs the released base diffusion policy without
-guidance, records DynaGuide teacher targets at the same visited states, and
-writes a plain HDF5 dataset for the distillation stage.
+This folder contains the DynaGuide self-distillation experiments for CALVIN. The
+main experiment follows the project proposal: run the base diffusion policy
+unguided, record DynaGuide denoising targets at the states that policy actually
+visits, train the diffusion model to predict those guided denoising targets, and
+evaluate the resulting policy with no guidance at inference time.
 
-The implementation is intentionally close to the released DynaGuide workflow:
-simple JSON configs, a Modal launch file, and HDF5 outputs.
+The implementation is intentionally compact: one Modal app, JSON experiment
+configs, trace collection, diffusion-target training, and evaluation.
+
+## Headline Result
+
+All rows below use the same evaluation protocol: CALVIN `switch_on`, reset poses
+from the reproduced DynaGuide setup, horizon 400, seeds `[1, 2, 3]`, and 100
+rollouts per seed.
+
+| Method | Guidance at evaluation | Success | Rollout time |
+| --- | --- | ---: | ---: |
+| Base diffusion policy | none | 14.3% ± 2.3% SE | 9.09 s |
+| DynaGuide | online guidance | 72.0% ± 2.3% SE | 15.87 s |
+| Distilled, off-policy guided traces | none | 73.0% ± 3.1% SE | 9.34 s |
+| **Distilled, on-policy student traces** | **none** | **78.0% ± 2.1% SE** | **7.97 s** |
+
+The on-policy distilled policy is the proposal method. It exceeds the reproduced
+DynaGuide success rate while removing inference-time guidance.
 
 ## Repository Layout
 
@@ -17,23 +34,30 @@ dynaguide_self_distillation/
 ├── pyproject.toml
 ├── configs/
 │   ├── switch_on_trace.json
-│   └── switch_on_trace_smoke.json
+│   ├── switch_on_trace_guided.json
+│   ├── switch_on_trace_smoke.json
+│   ├── switch_on_distill.json
+│   ├── switch_on_distill_offpolicy.json
+│   ├── switch_on_eval.json
+│   ├── switch_on_eval_base.json
+│   ├── switch_on_eval_dynaguide.json
+│   ├── switch_on_eval_offpolicy.json
+│   ├── drawer_open_trace_after_switch_on.json
+│   ├── drawer_open_distill_after_switch_on.json
+│   ├── drawer_open_eval_after_switch_on.json
+│   └── switch_on_eval_retention_after_drawer_open.json
 └── src/dynaguide_self_distillation/
     ├── __init__.py
     ├── calvin_labels.py
     ├── collect_traces.py
-    └── trace_diffusion.py
+    ├── eval.py
+    ├── trace_diffusion.py
+    └── train.py
 ```
 
-## Inputs
+## Modal Inputs
 
-The Modal volume is named:
-
-```text
-dynaguide-self-distillation
-```
-
-Upload the released artifacts to these paths:
+Create the Modal volume and upload the released DynaGuide artifacts:
 
 ```bash
 modal volume create dynaguide-self-distillation
@@ -42,89 +66,97 @@ modal volume put dynaguide-self-distillation /path/to/dynaguide_model.pth /input
 modal volume put dynaguide-self-distillation /path/to/switch_on_guidance.hdf5 /inputs/switch_on_guidance.hdf5
 ```
 
-Inside the Modal container, the volume is mounted at `/artifacts`, so the config
-entry `/inputs/base_policy.pth` resolves to:
+Inside Modal, the volume is mounted at `/artifacts`, so
+`/inputs/base_policy.pth` resolves to `/artifacts/inputs/base_policy.pth`.
 
-```text
-/artifacts/inputs/base_policy.pth
+The sequential `drawer_open` experiment also requires:
+
+```bash
+modal volume put dynaguide-self-distillation /path/to/drawer_open_guidance.hdf5 /inputs/drawer_open_guidance.hdf5
 ```
 
-## Run Trace Collection
+That file is not derived from the `switch_on` guidance set; it must be the
+task-specific DynaGuide guidance-condition HDF5 for `drawer_open`.
 
-Production trace collection is launched with one command:
+## End-to-End Commands
+
+Collect on-policy self-distillation traces:
 
 ```bash
 modal run --detach dynaguide_self_distillation/modal_app.py::collect_switch_on_traces
 ```
 
-That entrypoint submits fifteen independent A100-80GB jobs:
+Train the on-policy distilled policy:
+
+```bash
+modal run --detach dynaguide_self_distillation/modal_app.py::train_switch_on_distilled
+```
+
+Evaluate the main result:
+
+```bash
+modal run --detach dynaguide_self_distillation/modal_app.py::evaluate_switch_on_base
+modal run --detach dynaguide_self_distillation/modal_app.py::evaluate_switch_on_dynaguide
+modal run --detach dynaguide_self_distillation/modal_app.py::evaluate_switch_on_distilled
+```
+
+Run the off-policy guided-rollout baseline:
+
+```bash
+modal run --detach dynaguide_self_distillation/modal_app.py::collect_switch_on_guided_traces
+modal run --detach dynaguide_self_distillation/modal_app.py::train_switch_on_offpolicy_distilled
+modal run --detach dynaguide_self_distillation/modal_app.py::evaluate_switch_on_offpolicy_distilled
+```
+
+Download the trained policies and metrics:
+
+```bash
+modal volume get dynaguide-self-distillation /distilled/switch_on ./dynaguide_self_distillation/outputs/distilled_switch_on
+modal volume get dynaguide-self-distillation /distilled/switch_on_offpolicy_guided_rollouts ./dynaguide_self_distillation/outputs/distilled_switch_on_offpolicy
+modal volume get dynaguide-self-distillation /metrics ./dynaguide_self_distillation/outputs/metrics
+```
+
+## Trace Collection
+
+The production trace jobs launch 15 independent A100-80GB shard jobs:
 
 ```text
 3 seeds x 5 shards per seed x 10 rollouts per shard = 150 episodes
 ```
 
-Each shard writes its own HDF5 file and commits the Modal volume when that
-shard finishes. This avoids a single five-hour failure point: if one shard
-fails, rerun only that ten-rollout shard rather than the whole experiment.
-
-To rerun one shard manually:
-
-```bash
-modal run --detach dynaguide_self_distillation/modal_app.py::collect_switch_on_shard --seed 2 --rollout-start 20 --n-rollouts 10
-```
-
-Smoke run:
-
-```bash
-modal run dynaguide_self_distillation/modal_app.py::collect_switch_on_smoke
-```
-
-All trace workers request a single `A100-80GB` GPU. The DynaGuide paper used
-single RTX 3090-class GPUs; `A100-80GB` is used here for runtime and memory
-headroom while preserving the single-GPU experimental setup.
-
-## Output
-
-The production launcher writes one shard per seed/rollout slice:
+Each shard writes independently, so completed shards survive worker failures:
 
 ```text
 /artifacts/traces/switch_on_teacher/seed_1_rollouts_00_09.hdf5
 /artifacts/traces/switch_on_teacher/seed_1_rollouts_00_09_summary.json
-/artifacts/traces/switch_on_teacher/seed_1_rollouts_10_19.hdf5
 ...
 /artifacts/traces/switch_on_teacher/seed_3_rollouts_40_49.hdf5
 /artifacts/traces/switch_on_teacher/seed_3_rollouts_40_49_summary.json
 ```
 
-The smoke job writes:
+The on-policy trace semantics are strict: the simulator is stepped with
+`policy(ob=obs)` and DynaGuide is only a side computation. Each query records:
 
 ```text
-/artifacts/traces/switch_on_teacher_smoke/trace.hdf5
-/artifacts/traces/switch_on_teacher_smoke/summary.json
+query/obs/<policy_obs_key>       full observation history used for training
+query/rgb/<camera>               last-frame visual record for inspection
+query/low_dim/proprio            last-frame proprio record for inspection
+diffusion/noisy_action
+diffusion/timestep
+diffusion/unguided_noise_pred
+diffusion/guided_noise_pred
+diffusion/guidance_grad
+teacher/guided_action_chunk
+rollout/actions
+rollout/states
+rollout/proprios
 ```
 
-Each HDF5 file contains rollout data and denoising targets. Each summary JSON
-contains the config used for the shard, the number of episodes, the number of
-`switch_on` successes, and the behavior histogram.
-
-## Production Config
-
-The production config is:
-
-```text
-configs/switch_on_trace.json
-```
-
-Key settings:
+The DynaGuide hyperparameters match the reproduced `switch_on` setup:
 
 ```json
 {
-  "task": "switch_on",
-  "success_label": "switch_on",
-  "seeds": [1, 2, 3],
-  "n_rollouts_per_seed": 50,
   "horizon": 400,
-  "env_setup": {"switch": 0},
   "sampler": "ddim",
   "num_inference_timesteps": 10,
   "scale": 1.5,
@@ -133,127 +165,113 @@ Key settings:
 }
 ```
 
-These match the released DynaGuide `switch_on` settings:
+The completed on-policy trace set on the Modal volume contains 150 episodes,
+1,907 policy queries, and 76,280 denoising supervision records. Its behavior
+histogram has 27 `switch_on` successes, consistent with unguided base-policy
+data rather than guided-policy leakage.
 
-- CALVIN horizon is `400`.
-- The switch starts off with `env_setup = {"switch": 0}`.
-- The diffusion sampler is DDIM.
-- DDIM inference uses `10` steps.
-- DynaGuide uses `scale = 1.5`.
-- The released code calls the latent-distance temperature `alpha`; for
-  `switch_on`, it is `30`.
-- The released code calls stochastic sampling `ss`; this corresponds to
-  `M = 4` in the paper.
+The off-policy baseline trace set uses the same schema but sets
+`action_source = "dynaguide_guided"` and steps the environment with DynaGuide.
+It contains 150 episodes, 913 policy queries, and 36,520 denoising supervision
+records.
 
-The policy loader requires DDIM for this job and sets the checkpoint's DDIM
-inference step count from the config.
+## Distillation Training
 
-## Rollout Semantics
-
-Each CALVIN rollout executes the student action as:
-
-```python
-action = policy(ob=obs)
-```
-
-No DynaGuide guidance arguments are passed into the action that steps the
-environment.
-
-When the policy is about to run a fresh diffusion query, the trace job performs
-a separate DynaGuide denoising pass at the same observation. That pass records
-the teacher targets and then restores PyTorch RNG state before the unguided
-student action is sampled. This keeps the simulator trajectory on-policy for the
-unguided student.
-
-For each denoising record, the saved target is:
+Training consumes trace shards directly from the Modal volume. Each supervision
+sample is:
 
 ```text
-guided_noise_pred = unguided_noise_pred - sqrt(1 - alpha_bar_k) * guidance_grad
+(full_obs_history, noisy_action, timestep) -> guided_noise_pred
 ```
 
-This is the DynaGuide guidance update used during diffusion denoising.
+The trainer:
 
-Each episode is seeded from its configured seed and rollout index. This makes
-the shards order-independent and rerunnable: `seed_2_rollouts_20_29.hdf5` is
-the same shard whether it is collected before or after any other shard.
+- loads a robomimic diffusion-policy checkpoint;
+- starts from the deployed base-policy weights;
+- freezes the observation encoder;
+- trains only `policy.nets["policy"]["noise_pred_net"]`;
+- minimizes MSE to the recorded DynaGuide-guided noise prediction;
+- maintains an EMA copy of the trained noise predictor for saved checkpoints;
+- writes `training_state.pth` every 2,000 steps so training can resume;
+- saves robomimic-compatible `best.pth` and `final.pth`.
 
-## HDF5 Structure
+Default training config:
 
-Episodes are stored under:
+```json
+{
+  "batch_size": 64,
+  "max_steps": 20000,
+  "learning_rate": 0.00001,
+  "weight_decay": 0.0,
+  "validation_fraction": 0.1,
+  "ema_decay": 0.999,
+  "grad_clip": 1.0,
+  "save_every": 2000
+}
+```
+
+Completed training artifacts:
 
 ```text
-data/demo_<episode_index>/
+/artifacts/distilled/switch_on/best.pth
+/artifacts/distilled/switch_on/final.pth
+/artifacts/distilled/switch_on/training_summary.json
+
+/artifacts/distilled/switch_on_offpolicy_guided_rollouts/best.pth
+/artifacts/distilled/switch_on_offpolicy_guided_rollouts/final.pth
+/artifacts/distilled/switch_on_offpolicy_guided_rollouts/training_summary.json
 ```
 
-Each episode contains:
+The on-policy run used 68,652 training samples and 7,628 validation samples;
+its best validation loss was `0.027430339755179983`. The off-policy run used
+32,868 training samples and 3,652 validation samples; its best validation loss
+was `0.011793498214783853`.
+
+## Evaluation Artifacts
+
+Completed metrics:
 
 ```text
-query/rgb/<camera>
-query/low_dim/proprio
-teacher/guided_action_chunk
-diffusion/query_index
-diffusion/timestep
-diffusion/noisy_action
-diffusion/unguided_noise_pred
-diffusion/guided_noise_pred
-diffusion/guidance_grad
-rollout/actions
-rollout/states
-rollout/proprios
+/artifacts/metrics/switch_on_base/metrics.json
+/artifacts/metrics/switch_on_dynaguide/metrics.json
+/artifacts/metrics/switch_on_distilled/metrics.json
+/artifacts/metrics/switch_on_offpolicy_guided_rollouts/metrics.json
 ```
 
-Episode attributes:
+Per-seed results:
 
-```text
-seed
-rollout_index
-success
-behavior_label
-action_source = "student_unguided"
+| Method | Seed 1 | Seed 2 | Seed 3 | Total |
+| --- | ---: | ---: | ---: | ---: |
+| Base diffusion policy | 12/100 | 19/100 | 12/100 | 43/300 |
+| DynaGuide | 76/100 | 68/100 | 72/100 | 216/300 |
+| Distilled, off-policy guided traces | 79/100 | 69/100 | 71/100 | 219/300 |
+| Distilled, on-policy student traces | 81/100 | 74/100 | 79/100 | 234/300 |
+
+Evaluation writes `metrics.partial.json` after each completed seed and
+`metrics.json` after all seeds finish.
+
+## Sequential Experiment
+
+The proposal's next experiment is sequential distillation. The code path is
+implemented:
+
+```bash
+modal run --detach dynaguide_self_distillation/modal_app.py::collect_drawer_open_traces_after_switch_on
+modal run --detach dynaguide_self_distillation/modal_app.py::train_drawer_open_after_switch_on
+modal run --detach dynaguide_self_distillation/modal_app.py::evaluate_drawer_open_after_switch_on
+modal run --detach dynaguide_self_distillation/modal_app.py::evaluate_switch_on_retention_after_drawer_open
 ```
 
-Root attributes include the task name, success label, action source, horizon,
-sampler, DynaGuide hyperparameters, seeds, and rollout count.
+Do not run those commands until `/inputs/drawer_open_guidance.hdf5` exists on
+the Modal volume. The expected `drawer_open` DynaGuide hyperparameters are:
 
-## Code Map
-
-- `modal_app.py` defines the Modal image, mounts the artifact volume, installs
-  upstream runtime packages, and exposes the production and smoke functions.
-- `collect_traces.py` loads the policy, CALVIN environment, DynaGuide dynamics
-  model, and guidance conditions; runs rollouts; and writes HDF5 plus summary
-  outputs.
-- `trace_diffusion.py` implements the DynaGuide side computation for each fresh
-  diffusion-policy query.
-- `calvin_labels.py` classifies the first behavior expressed in each rollout
-  from privileged CALVIN state.
-
-## Expected Dataset Size
-
-The production run collects:
-
-```text
-3 seeds x 5 shards per seed x 10 rollouts per shard = 150 episodes
+```json
+{
+  "horizon": 400,
+  "sampler": "ddim",
+  "num_inference_timesteps": 10,
+  "scale": 1.0,
+  "alpha": 40,
+  "ss": 4
+}
 ```
-
-Each episode has a maximum of `400` environment steps. The policy acts through
-action chunks, so fresh diffusion queries are less frequent than environment
-steps. Each fresh query records:
-
-```text
-10 DDIM timesteps x 4 stochastic samples = 40 denoising records
-```
-
-At the horizon limit, each shard contains at most:
-
-```text
-10 episodes x 400 steps = 4,000 environment steps
-```
-
-The full production dataset contains at most:
-
-```text
-150 episodes x 400 steps = 60,000 environment steps
-```
-
-The trace is therefore a diffusion-target dataset for training, not just a set
-of episode-level labels.
